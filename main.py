@@ -2,6 +2,8 @@ import time,json,requests,random,datetime
 from campus import CampusCard
 
 def main():
+    #校内校外开关
+    mark = 1
     #定义变量
     success,failure=[],[]
     #sectets字段录入
@@ -26,7 +28,11 @@ def main():
                 campus = CampusCard(phone[index], password[index])
                 token = campus.user_info["sessionId"]
                 userInfo=getUserInfo(token)
-                response = checkIn(userInfo,token)
+                if mark == 0:
+                    response = checkIn(userInfo,token)
+                if mark == 1:
+                    ownPhone=phone[index]
+                    response = check(ownPhone,userInfo,token)
                 strTime = getNowTime()
                 if response.json()["msg"] == '成功':
                     success.append(value[-4:])
@@ -47,9 +53,15 @@ def main():
                     time.sleep(5)
             except Exception as e:
                 print(e.__class__)
-                msg = "出现错误"
                 failure.append(value[-4:])
-                break
+                strTime = getNowTime()
+                msg = strTime + value[-4:] +"出现错误"
+                count = count + 1
+                if index == 0:
+                    result=response
+                if count<=3:
+                    print('%s打卡出错，开始第%d次重试...'%(value[-4:],count))
+                time.sleep(1)
         print(msg)
         print("-----------------------")
     fail = sorted(set(failure),key=failure.index)
@@ -66,46 +78,6 @@ def getNowTime():
     strTime = cstTime.strftime("%H:%M:%S ")
     return strTime
 
-#打卡参数配置函数
-def getUserJson(userInfo,token):
-    #随机温度(36.2~36.8)
-    a=random.uniform(36.2,36.8)
-    temperature = round(a, 1)
-    return  {
-        "businessType": "epmpics",
-        "method": "submitUpInfoSchool",
-        "jsonData": {
-        "deptStr": {
-            "deptid": userInfo['classId'],
-            "text": userInfo['classDescription']
-        },
-        #如果你来自其他学校，请自行打卡抓包修改地址字段
-        "areaStr": {"streetNumber":"","street":"长椿路辅路","district":"中原区","city":"郑州市","province":"河南省","town":"","pois":"河南工业大学(莲花街校区)","lng":113.55064699999795 + random.random()/1000,"lat":34.83870696238093 + random.random()/1000,"address":"中原区长椿路辅路河南工业大学(莲花街校区)","text":"河南省-郑州市","code":""},
-        "reportdate": round(time.time()*1000),
-        "customerid": userInfo['customerId'],
-        "deptid": userInfo['classId'],
-        "source": "app",
-        "templateid": "clockSign2",
-        "stuNo": userInfo['stuNo'],
-        "username": userInfo['username'],
-        "userid": round(time.time()),
-        "updatainfo": [  
-            {
-                "propertyname": "temperature",
-                "value": temperature
-            },
-            {
-                "propertyname": "symptom",
-                "value": "无症状"
-            }
-        ],
-        "customerAppTypeRuleId": 147,
-        "clockState": 0,
-        "token": token
-        },
-        "token": token
-    }    
-
 #信息获取函数
 def getUserInfo(token):
     token={'token':token}
@@ -114,13 +86,105 @@ def getUserInfo(token):
     response = requests.post(sign_url, data=token)
     return response.json()['userInfo']
 
-#打卡提交函数
+#校内打卡提交函数
 def checkIn(userInfo,token):
     sign_url = "https://reportedh5.17wanxiao.com/sass/api/epmpics"
-    jsons=getUserJson(userInfo,token)
+     #随机温度(36.2~36.8)
+    a=random.uniform(36.2,36.8)
+    temperature = round(a, 1)
+    jsons={
+            "businessType": "epmpics",
+            "method": "submitUpInfoSchool",
+            "jsonData": {
+            "deptStr": {
+                "deptid": userInfo['classId'],
+                "text": userInfo['classDescription']
+            },
+            #如果你来自其他学校，请自行打卡抓包修改地址字段
+            "areaStr": {"streetNumber":"","street":"长椿路辅路","district":"中原区","city":"郑州市","province":"河南省","town":"","pois":"河南工业大学(莲花街校区)","lng":113.55064699999795 + random.random()/1000,"lat":34.83870696238093 + random.random()/1000,"address":"中原区长椿路辅路河南工业大学(莲花街校区)","text":"河南省-郑州市","code":""},
+            "reportdate": round(time.time()*1000),
+            "customerid": userInfo['customerId'],
+            "deptid": userInfo['classId'],
+            "source": "app",
+            "templateid": "clockSign2",
+            "stuNo": userInfo['stuNo'],
+            "username": userInfo['username'],
+            "userid": round(time.time()),
+            "updatainfo": [  
+                {
+                    "propertyname": "temperature",
+                    "value": temperature
+                },
+                {
+                    "propertyname": "symptom",
+                    "value": "无症状"
+                }
+            ],
+            "customerAppTypeRuleId": 147,
+            "clockState": 0,
+            "token": token
+            },
+            "token": token
+    }
     #提交打卡
     response = requests.post(sign_url, json=jsons)
     return response
+
+#校外打卡
+def check(ownPhone,userInfo,token):
+    sign_url = "https://reportedh5.17wanxiao.com/sass/api/epmpics"
+    #获取datajson
+    post_json = {
+            "businessType": "epmpics",
+            "jsonData": {
+            "templateid": "pneumonia",
+            "token": token
+        },
+            "method": "getUpDataInfoDetail"
+    }      
+    response = requests.post(sign_url, json=post_json).json()
+    data = json.loads(response['data'])
+    info_dict = {
+            "add":data['add'],
+            "areaStr": data['areaStr'],
+            "updatainfo": [{"propertyname": i["propertyname"], "value": i["value"]} for i in
+                            data['cusTemplateRelations']]
+        }
+    #随机温度
+    a=random.uniform(36.2,36.8)
+    temperature = round(a, 1)
+    for i in info_dict['updatainfo']: 
+        if i['propertyname'] == 'temperature':
+            i['value'] = temperature
+    #校外打卡提交json
+    check_json = {
+    "businessType": "epmpics",
+    "method": "submitUpInfo",
+    "jsonData": {
+        "add": info_dict['add'],
+        "areaStr": info_dict['areaStr'],
+        "cardNo": "null",
+        "customerid": userInfo['customerId'],
+        "deptStr": {
+            "deptid": userInfo['classId'],
+            "text": userInfo['classDescription'],
+        },
+        "phonenum": ownPhone,
+        "stuNo": userInfo['stuNo'],
+        "templateid": "pneumonia",
+        "upTime": "null",
+        "userid": userInfo['userId'],
+        "username": userInfo['username'],
+        "deptid": userInfo['classId'],
+        "updatainfo": info_dict['updatainfo'],
+        "source": "app",
+        "reportdate": round(time.time()),
+        "gpsType": 1,
+        "token": token
+    }
+}
+    res = requests.post(sign_url, json=check_json) 
+    return res
 
 #微信通知
 def wechatPush(title,sckey,success,fail,result):    
@@ -137,7 +201,6 @@ def wechatPush(title,sckey,success,fail,result):
 {page}
 ```
 ### 😀[收藏此项目](https://github.com/YooKing/HAUT_autoCheck)
-
         """
     data = {
             "text":title,
@@ -154,4 +217,5 @@ def wechatPush(title,sckey,success,fail,result):
         print("微信推送参数错误")
 
 if __name__ == '__main__':
+    mark = 1
     main()
